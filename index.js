@@ -62,7 +62,7 @@ ShanonPK ka reply:
 // ✅ Short greetings list
 const SHORT_GREETINGS = ["hi", "hello", "hey", "ok", "yo", "salam"];
 
-client.once("ready", () => {
+client.once("clientReady", () => {
   console.log(`🤖 Bot is online as ${client.user.tag}`);
 });
 
