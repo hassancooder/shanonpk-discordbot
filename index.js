@@ -36,11 +36,11 @@ client.on('messageCreate', async (message) => {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
+                    serverId: message.guild?.id || null,
+                    channelId: message.channel.id,
                     messageId: message.id,
                     username: message.author.username,
-                    userId: message.author.id,
-                    message: message.content,
-                    channelId: message.channel.id,
+                    messageText: message.content,
                     timestamp: message.createdTimestamp
                 })
             });
