@@ -1,10 +1,23 @@
 require('dotenv').config();
+const express = require('express'); // <-- Added
 const { Client, GatewayIntentBits } = require('discord.js');
 
 // Load environment variables
 const TOKEN = process.env.DISCORD_BOT_TOKEN;
 const CHANNEL_ID = process.env.CHANNEL_ID;
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
+const PORT = process.env.PORT || 3000; // <-- Default port if not provided
+
+// Initialize Express app (for open port)
+const app = express();
+app.get('/', (req, res) => {
+    res.send('Bot is running fine 🚀');
+});
+
+// Start dummy HTTP server
+app.listen(PORT, () => {
+    console.log(`🌍 Dummy server running on http://localhost:${PORT}`);
+});
 
 // Initialize Discord client
 const client = new Client({
@@ -39,6 +52,7 @@ client.on('messageCreate', async (message) => {
                     serverId: message.guild?.id || null,
                     channelId: message.channel.id,
                     messageId: message.id,
+                    userId: message.author.id,
                     username: message.author.username,
                     messageText: message.content,
                     timestamp: message.createdTimestamp
