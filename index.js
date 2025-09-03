@@ -3,50 +3,64 @@ dotenv.config();
 
 import { Client, GatewayIntentBits } from "discord.js";
 import { GoogleGenAI } from "@google/genai";
-import express from "express";
 import { saveMessage, getRecentMessages } from "./db.js";
 
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-  ],
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+    ],
 });
 
-// ✅ Gemini Initialization
+// ✅ Initialize Gemini properly
 const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
+    apiKey: process.env.GEMINI_API_KEY,
 });
 
-// ✅ Pre-instructions for Gemini
+// Pre-instructions
 const preInstructions = `
 Tum ShanonPK ho – aik Discord bot jo chill vibe mein baat karta hai jaise Grok AI tweet karta hai. 
 - Bhai log style: Funny, thoda sarcasm, simple aur short replies. 
-- Kabhi galat info nahi deni, politely correct karna.
-- Sirf jitni baat poochi jaye utna hi jawab dena, lambi speeches nahi.
-- Kabhi kabhi emojis aur masti add karo 😎🔥
-- Agar user same simple greeting ("hi", "hello", "ok") repeat kare, ignore karo.
-- Normal duplicate questions ka reply politely dena.
+- Agar koi galat baat kare, usay politely but firmly correct karo. 
+- Kabhi bhi user ko sirf satisfy karne ke liye galat baat sehi nahi kehna.
+- Jitni baat poochi jaye utna hi jawab do, lambi unnecessary speeches na do.
+- Emojis aur masti ka touch add karo kabhi kabhi. 😎🔥
+- Agar koi server ke rules tode, usay gently warn karo.
+- Agar koi user same message repeat kare jaise "hi", "hello", ya simple greetings multiple times bheje,  toh ignore maro".
+- Same duplicate warning baar baar repeat na karo, warna boring lagta hai.
+- Agar duplicate message koi normal baat ho (jaise koi question repeat kare because pehle ignore hua),
+  toh politely uska jawab do instead of scolding.
+- Duplicate detect karte waqt sirf short common greetings ("hi", "hello", "ok", etc.) pe trigger karo,
+  normal sentences pe nahi.
+
 
 Server Info:
-"Shanon.PK is a collaborative hub for Learning, Projects, AI, Networking, Jobs, and Tasks."
+"Shanon.PK is a collaborative hub for Learning, Projects, AI, Networking, Jobs, and Tasks. Join a vibrant community of developers, students, and professionals working together to grow, innovate, and succeed through collective effort."
 
 Rules:
-1. Spam ya group links share mat karo.
-2. Toxic behavior ya disrespect strictly prohibited hai.
-3. Illegal activities discussion bilkul allowed nahi hai.
+1. Discord, WhatsApp, Telegram, etc. group invite links share na karo.
+2. Spamming ya flooding messages na karo.
+3. Promotions ya self-advertising bina permission ke allowed nahi hai.
+4. Toxic ya disrespectful behavior strictly prohibited hai.
+5. NSFW content bilkul allowed nahi hai.
+6. Server admins ke instructions ko follow karo.
+7. Kisi bhi illegal activity ki discussion strictly ban hai.
+8. Clean aur respectful language use karo.
 `;
 
-// ✅ Build AI prompt
+client.once("clientReady", () => {
+    console.log(`🤖 Bot is online as ${client.user.tag}`);
+});
+
 async function buildPrompt(message) {
-  const recentMessages = await getRecentMessages(message.channel.id);
+    const recentMessages = await getRecentMessages(message.channel.id, client.user.id);
 
-  const history = recentMessages
-    .map((msg) => `${msg.username}: ${msg.message}`)
-    .join("\n");
+    const history = recentMessages
+        .map((msg) => `${msg.username}: ${msg.message}`)
+        .join("\n");
 
-  return `
+    return `
 ${preInstructions}
 
 Recent conversation:
@@ -55,80 +69,49 @@ ${history}
 New message:
 ${message.author.username}: ${message.content}
 
-ShanonPK ka reply:
-`;
+ShanonPK ka reply: 
+  `;
 }
 
-// ✅ Short greetings list
-const SHORT_GREETINGS = ["hi", "hello", "hey", "ok", "yo", "salam"];
-
-client.once("clientReady", () => {
-  console.log(`🤖 Bot is online as ${client.user.tag}`);
-});
-
 client.on("messageCreate", async (message) => {
-  try {
+     // Ignore bot messages
     if (message.author.bot) return;
 
-    // ✅ Only specific channel
+    // ✅ Only respond in the allowed channel
     if (message.channel.id !== process.env.CHANNEL_ID) return;
 
-    const msg = message.content.toLowerCase().trim();
 
-    // ✅ Ignore repeated greetings
-    if (SHORT_GREETINGS.includes(msg)) {
-      const recentMessages = await getRecentMessages(message.channel.id);
-
-      const lastGreeting = recentMessages.find((m) =>
-        SHORT_GREETINGS.includes(m.message.toLowerCase().trim())
-      );
-
-      if (lastGreeting) {
-        console.log("⚠️ Duplicate greeting detected. Ignoring...");
-        return; // No reply
-      }
-    }
-
-    // ✅ Save message
     await saveMessage(message);
 
-    // ✅ Build prompt and generate AI response
-    const prompt = await buildPrompt(message);
+    try {
+        const prompt = await buildPrompt(message);
 
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-    });
+        // ✅ New SDK format
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+        });
 
-    // ✅ Safely extract text
-    const reply = response.output_text?.trim();
-
-    if (!reply) {
-      console.error("⚠️ Empty response from Gemini:", response);
-      return await message.reply("Sorry, mujhe kuch samajh nahi aya. 🤖");
+        const reply = response.text;
+        await message.reply(reply);
+    } catch (error) {
+        console.error("❌ Error generating reply:", error);
+        await message.reply("Error ho gaya reply generate karte hue.");
     }
-
-    await message.reply(reply);
-  } catch (error) {
-    console.error("❌ Error generating reply:", error);
-    if (error.message.includes("Cannot send an empty message")) {
-      return await message.reply("Reply empty aaya, Gemini se kuch nahi mila. 🤔");
-    }
-    await message.reply("Error ho gaya reply generate karte hue.");
-  }
 });
 
 client.login(process.env.DISCORD_BOT_TOKEN);
 
-//
-// 🌍 Health check server for Render
-//
+import express from "express";
+
 const app = express();
+
+// Simple health route
 app.get("/", (req, res) => {
-  res.send("ShanonPK bot is running! 🚀");
+    res.send("ShanonPK bot is running! 🚀");
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🌍 Web server running on port ${PORT}`);
+    console.log(`🌍 Web server running on port ${PORT}`);
 });
