@@ -1,76 +1,117 @@
-require('dotenv').config();
-const express = require('express'); // <-- Added
-const { Client, GatewayIntentBits } = require('discord.js');
+import dotenv from "dotenv";
+dotenv.config();
 
-// Load environment variables
-const TOKEN = process.env.DISCORD_BOT_TOKEN;
-const CHANNEL_ID = process.env.CHANNEL_ID;
-const WEBHOOK_URL = process.env.WEBHOOK_URL;
-const PORT = process.env.PORT || 3000; // <-- Default port if not provided
+import { Client, GatewayIntentBits } from "discord.js";
+import { GoogleGenAI } from "@google/genai";
+import { saveMessage, getRecentMessages } from "./db.js";
 
-// Initialize Express app (for open port)
-const app = express();
-app.get('/', (req, res) => {
-    res.send('Bot is running fine 🚀');
-});
-
-// Start dummy HTTP server
-app.listen(PORT, () => {
-    console.log(`🌍 Dummy server running on http://localhost:${PORT}`);
-});
-
-// Initialize Discord client
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent // Required to read message content
-    ]
+        GatewayIntentBits.MessageContent,
+    ],
 });
 
-// FIX: Changed 'ready' → 'clientReady'
-client.once('clientReady', () => {
+// ✅ Initialize Gemini properly
+const ai = new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+});
+
+// Pre-instructions
+const preInstructions = `
+Tum ShanonPK ho – aik Discord bot jo chill vibe mein baat karta hai jaise Grok AI tweet karta hai. 
+- Bhai log style: Funny, thoda sarcasm, simple aur short replies. 
+- Agar koi galat baat kare, usay politely but firmly correct karo. 
+- Kabhi bhi user ko sirf satisfy karne ke liye galat baat sehi nahi kehna.
+- Jitni baat poochi jaye utna hi jawab do, lambi unnecessary speeches na do.
+- Emojis aur masti ka touch add karo kabhi kabhi. 😎🔥
+- Agar koi server ke rules tode, usay gently warn karo.
+- Agar koi user same message repeat kare jaise "hi", "hello", ya simple greetings multiple times bheje,  toh ignore maro".
+- Same duplicate warning baar baar repeat na karo, warna boring lagta hai.
+- Agar duplicate message koi normal baat ho (jaise koi question repeat kare because pehle ignore hua),
+  toh politely uska jawab do instead of scolding.
+- Duplicate detect karte waqt sirf short common greetings ("hi", "hello", "ok", etc.) pe trigger karo,
+  normal sentences pe nahi.
+
+
+Server Info:
+"Shanon.PK is a collaborative hub for Learning, Projects, AI, Networking, Jobs, and Tasks. Join a vibrant community of developers, students, and professionals working together to grow, innovate, and succeed through collective effort."
+
+Rules:
+1. Discord, WhatsApp, Telegram, etc. group invite links share na karo.
+2. Spamming ya flooding messages na karo.
+3. Promotions ya self-advertising bina permission ke allowed nahi hai.
+4. Toxic ya disrespectful behavior strictly prohibited hai.
+5. NSFW content bilkul allowed nahi hai.
+6. Server admins ke instructions ko follow karo.
+7. Kisi bhi illegal activity ki discussion strictly ban hai.
+8. Clean aur respectful language use karo.
+`;
+
+client.once("clientReady", () => {
     console.log(`🤖 Bot is online as ${client.user.tag}`);
 });
 
-client.on('messageCreate', async (message) => {
+async function buildPrompt(message) {
+    const recentMessages = await getRecentMessages(message.channel.id, client.user.id);
+
+    const history = recentMessages
+        .map((msg) => `${msg.username}: ${msg.message}`)
+        .join("\n");
+
+    return `
+${preInstructions}
+
+Recent conversation:
+${history}
+
+New message:
+${message.author.username}: ${message.content}
+
+ShanonPK ka reply: 
+  `;
+}
+
+client.on("messageCreate", async (message) => {
+     // Ignore bot messages
+    if (message.author.bot) return;
+
+    // ✅ Only respond in the allowed channel
+    if (message.channel.id !== process.env.CHANNEL_ID) return;
+
+
+    await saveMessage(message);
+
     try {
-        // Ignore bot's own messages
-        if (message.author.bot) return;
+        const prompt = await buildPrompt(message);
 
-        // Only listen to a specific channel
-        if (message.channel.id === CHANNEL_ID) {
-            console.log(`New message received: ${message.content} (ID: ${message.id})`);
+        // ✅ New SDK format
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt,
+        });
 
-            // Send message details to n8n webhook using fetch
-            const response = await fetch(WEBHOOK_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    serverId: message.guild?.id || null,
-                    channelId: message.channel.id,
-                    messageId: message.id,
-                    userId: message.author.id,
-                    username: message.author.username,
-                    messageText: message.content,
-                    timestamp: message.createdTimestamp
-                })
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Webhook responded with status ${response.status}: ${errorText}`);
-            }
-
-            console.log('✅ Message sent to n8n webhook successfully!');
-        }
+        const reply = response.text;
+        await message.reply(reply);
     } catch (error) {
-        console.log('Webhook URL:', WEBHOOK_URL);
-        console.error('❌ Error sending message to webhook:', error.message);
+        console.error("❌ Error generating reply:", error);
+        await message.reply("Error ho gaya reply generate karte hue.");
     }
 });
 
-// Start bot
-client.login(TOKEN);
+client.login(process.env.DISCORD_BOT_TOKEN);
+
+import express from "express";
+
+const app = express();
+
+// Simple health route
+app.get("/", (req, res) => {
+    res.send("ShanonPK bot is running! 🚀");
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`🌍 Web server running on port ${PORT}`);
+});
